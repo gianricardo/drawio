@@ -9,15 +9,15 @@
 		/**
 		 * Enables paste from Lucidchart
 		 */
-		html4.ATTRIBS["span::data-lucid-content"] = 0;
-		html4.ATTRIBS["span::data-lucid-type"] = 0;
+		html4.ATTRIBS['span::data-lucid-content'] = 0;
+		html4.ATTRIBS['span::data-lucid-type'] = 0;
 		
 		/**
 		 * Enables custom fonts in labels.
 		 */
 		html4.ATTRIBS['font::data-font-src'] = 0;
 	}
-	
+
 	/**
 	 * Specifies the app name. Default is document.title.
 	 */
@@ -194,6 +194,21 @@
 	Editor.svgBrokenImage = Graph.createSvgImage(10, 10, '<rect x="0" y="0" width="10" height="10" stroke="#000" fill="transparent"/><path d="m 0 0 L 10 10 L 0 10 L 10 0" stroke="#000" fill="transparent"/>');
 
 	/**
+	 * Error image for not found images
+	 */	
+	Editor.errorImage = 'data:image/gif;base64,R0lGODlhEAAQAPcAAADGAIQAAISEhP8AAP///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////yH5BAEAAAAALAAAAAAQABAAAAhoAAEIFBigYMGBCAkGGMCQ4cGECxtKHBAAYUQCEzFSHLiQgMeGHjEGEAAg4oCQJz86LCkxpEqHAkwyRClxpEyXGmGaREmTIsmOL1GO/DkzI0yOE2sKIMlRJsWhCQHENDiUaVSpS5cmDAgAOw==';
+	
+	/**
+	 * Error image for not found images
+	 */	
+	Editor.configurationKey = '.configuration';
+		
+	/**
+	 * Error image for not found images
+	 */	
+	Editor.settingsKey = '.drawio-config';
+	
+	/**
 	 * Default value for custom libraries in mxSettings.
 	 */
 	Editor.defaultCustomLibraries = [];
@@ -345,8 +360,11 @@
         {name: 'movable', dispName: 'Movable', type: 'bool', defVal: true},
         {name: 'cloneable', dispName: 'Cloneable', type: 'bool', defVal: true},
         {name: 'deletable', dispName: 'Deletable', type: 'bool', defVal: true},
+        {name: 'noJump', dispName: 'No Jumps', type: 'bool', defVal: false},
+        {name: 'flowAnimation', dispName: 'Flow Animation', type: 'bool', defVal: false},
+		{name: 'ignoreEdge', dispName: 'Ignore Edge', type: 'bool', defVal: false},
         {name: 'orthogonalLoop', dispName: 'Loop Routing', type: 'bool', defVal: false},
-        {name: 'noJump', dispName: 'No Jumps', type: 'bool', defVal: false}
+		{name: 'orthogonal', dispName: 'Orthogonal', type: 'bool', defVal: false}
 	].concat(Editor.commonProperties);
 
 	/**
@@ -416,7 +434,8 @@
         			{val: 'hexagonPerimeter2', dispName: 'Hexagon'}, {val: 'lifelinePerimeter', dispName: 'Lifeline'},
         			{val: 'orthogonalPerimeter', dispName: 'Orthogonal'}, {val: 'backbonePerimeter', dispName: 'Backbone'},
         			{val: 'calloutPerimeter', dispName: 'Callout'}, {val: 'parallelogramPerimeter', dispName: 'Parallelogram'},
-        			{val: 'trapezoidPerimeter', dispName: 'Trapezoid'}, {val: 'stepPerimeter', dispName: 'Step'}]
+        			{val: 'trapezoidPerimeter', dispName: 'Trapezoid'}, {val: 'stepPerimeter', dispName: 'Step'},
+        			{val: 'centerPerimeter', dispName: 'Center'}]
         },
         {name: 'fixDash', dispName: 'Fixed Dash', type: 'bool', defVal: false},
         {name: 'autosize', dispName: 'Autosize', type: 'bool', defVal: false},
@@ -559,10 +578,14 @@
 		'## An optional placeholders can be set to target to use data from the target instead.\n' +
 		'## In addition to label, an optional fromlabel and tolabel can be used to name the column\n' +
 		'## that contains the text for the label in the edges source or target (invert ignored).\n' +
-		'## The label is concatenated in the form fromlabel + label + tolabel if all are defined.\n' +
+		'## In addition to those, an optional source and targetlabel can be used to specify a label\n' +
+		'## that contains placeholders referencing the respective columns in the source or target row.\n' +
+		'## The label is created in the form fromlabel + sourcelabel + label + tolabel + targetlabel.\n' +
 		'## Additional labels can be added by using an optional labels array with entries of the\n' +
 		'## form {"label": string, "x": number, "y": number, "dx": number, "dy": number} where\n' +
 		'## x is from -1 to 1 along the edge, y is orthogonal, and dx/dy are offsets in pixels.\n' +
+		'## An optional placeholders with the string value "source" or "target" can be specified\n' +
+		'## to replace placeholders in the additional label with data from the source or target.\n' +
 		'## The target column may contain a comma-separated list of values.\n' +
 		'## Multiple connect entries are allowed.\n' +
 		'#\n' +
@@ -1191,6 +1214,7 @@
 		var shapePaint = mxShape.prototype.paint;
 		mxShape.prototype.paint = function(c)
 		{
+			var addTolerance = c.addTolerance;
 			var fillStyle = null;
 			var events = true;
 			
@@ -1211,9 +1235,7 @@
 				}
 			}
 			
-			if (events && c.handJiggle != null && c.handJiggle.constructor == RoughCanvas &&
-				!this.outline && (this.fill == null || this.fill == mxConstants.NONE ||
-				fillStyle != 'solid'))
+			if (events && c.handJiggle != null && c.handJiggle.constructor == RoughCanvas && !this.outline)
 			{
 				// Save needed for possible transforms applied during paint
 				c.save();
@@ -1221,17 +1243,57 @@
 				var stroke = this.stroke;
 				this.fill = null;
 				this.stroke = null;
+				
+				// Ignores color changes during paint
+				var setStrokeColor = c.setStrokeColor;
+				
+				c.setStrokeColor = function()
+				{
+					// ignore
+				};
+		
+				var setFillColor = c.setFillColor;
+				
+				c.setFillColor = function()
+				{
+					// ignore
+				};
+				
 				c.handJiggle.passThrough = true;
 
 				shapePaint.apply(this, arguments);
 
 				c.handJiggle.passThrough = false;
-				this.fill = fill;
+				c.setFillColor = setFillColor;
+				c.setStrokeColor = setStrokeColor;
 				this.stroke = stroke;
+				this.fill = fill;
 				c.restore();
+				
+				c.addTolerance = function()
+				{
+					// ignore	
+				};
 			}
 			
 			shapePaint.apply(this, arguments);
+			c.addTolerance = addTolerance;
+		};
+		
+		// Overrides glass effect to disable sketch style
+		var shapePaintGlassEffect = mxShape.prototype.paintGlassEffect;
+		mxShape.prototype.paintGlassEffect = function(c, x, y, w, h, arc)
+		{
+			if (c.handJiggle != null && c.handJiggle.constructor == RoughCanvas)
+			{
+				c.handJiggle.passThrough = true;
+				shapePaintGlassEffect.apply(this, arguments);
+				c.handJiggle.passThrough = false;
+			}
+			else
+			{
+				shapePaintGlassEffect.apply(this, arguments);
+			}
 		};
 	})();
 
@@ -1438,6 +1500,29 @@
 
 		// Workaround for invalid character error in Safari
 		var f = (window.atob && !mxClient.IS_SF) ? atob(base64) : Base64.decode(base64, true);
+		
+		//The new format of embedding diagram XML as embedded file (attachment) is in PDF 1.7
+		if (f.substring(0, 8) == '%PDF-1.7')
+		{
+			var blockStart = f.indexOf('EmbeddedFile'); 
+			
+			if (blockStart > -1)
+			{
+				var streamStart = f.indexOf('stream', blockStart) + 9; //the start of the stream [skipping header check]
+				var fileInfo = f.substring(blockStart, streamStart);
+				
+				if (fileInfo.indexOf('application#2Fvnd.jgraph.mxfile') > 0)
+				{
+					var streamEnd = f.indexOf('endstream', streamStart - 1);
+				
+					return pako.inflateRaw(Graph.stringToArrayBuffer(f.substring(streamStart, streamEnd)), {to: 'string'});
+				}
+			}
+			
+			//Not found
+			return null;
+		}
+		
 		var check = '/Subject (%3Cmxfile';
 		var result = null;
 		var curline = '';
@@ -1616,7 +1701,6 @@
 		}
 		catch (e)
 		{
-			console.log('here', e);
 			// ignores decoding errors
 		}
 		
@@ -1712,6 +1796,11 @@
 				Editor.compressXml = config.compressXml;
 			}
 			
+			if (config.simpleLabels != null)
+			{
+				Editor.simpleLabels = config.simpleLabels;
+			}
+			
 			if (config.customFonts)
 			{
 				Menus.prototype.defaultFonts = config.customFonts.
@@ -1781,6 +1870,17 @@
 			if (config.defaultEdgeStyle != null)
 			{
 				Graph.prototype.defaultEdgeStyle = config.defaultEdgeStyle;
+			}
+
+			// Overrides grid steps
+			if (config.gridSteps != null)
+			{
+				var val = parseInt(config.gridSteps);
+				
+				if (!isNaN(val) && val > 0)
+				{
+					mxGraphView.prototype.gridSteps = val;
+				}
 			}
 			
 			if (config.emptyDiagramXml)
@@ -3095,7 +3195,7 @@
 	 */
 	Editor.prototype.exportToCanvas = function(callback, width, imageCache, background, error, limitHeight,
 		ignoreSelection, scale, transparentBackground, addShadow, converter, graph, border, noCrop, grid,
-		keepTheme, exportType)
+		keepTheme, exportType, cells)
 	{
 		try
 		{
@@ -3123,7 +3223,7 @@
 			}
 			
 			this.convertImages(graph.getSvg(null, null, border, noCrop, null, ignoreSelection,
-				null, null, null, addShadow, null, keepTheme, exportType),
+				null, null, null, addShadow, null, keepTheme, exportType, cells),
 				mxUtils.bind(this, function(svgRoot)
 			{
 				try
@@ -3173,13 +3273,13 @@
 									window.setTimeout(function()
 									{
 										ctx.drawImage(img, 0, 0);
-										callback(canvas);
+										callback(canvas, svgRoot);
 									}, 0);
 						   		}
 						   		else
 						   		{
 						   			ctx.drawImage(img, 0, 0);
-						   			callback(canvas);
+						   			callback(canvas, svgRoot);
 						   		}
 						    };
 						    
@@ -4140,8 +4240,8 @@
 			{fill: '#0050ef', stroke: '#001DBC', font: '#ffffff'}, {fill: '#6a00ff', stroke: '#3700CC', font: '#ffffff'},
 			//{fill: '#aa00ff', stroke: '#7700CC', font: '#ffffff'},
 			{fill: '#d80073', stroke: '#A50040', font: '#ffffff'}, {fill: '#a20025', stroke: '#6F0000', font: '#ffffff'}],
-			[{fill: '#e51400', stroke: '#B20000', font: '#ffffff'}, {fill: '#fa6800', stroke: '#C73500', font: '#ffffff'},
-			{fill: '#f0a30a', stroke: '#BD7000', font: '#ffffff'}, {fill: '#e3c800', stroke: '#B09500', font: '#ffffff'},
+			[{fill: '#e51400', stroke: '#B20000', font: '#ffffff'}, {fill: '#fa6800', stroke: '#C73500', font: '#000000'},
+			{fill: '#f0a30a', stroke: '#BD7000', font: '#000000'}, {fill: '#e3c800', stroke: '#B09500', font: '#000000'},
 			{fill: '#6d8764', stroke: '#3A5431', font: '#ffffff'}, {fill: '#647687', stroke: '#314354', font: '#ffffff'},
 			{fill: '#76608a', stroke: '#432D57', font: '#ffffff'}, {fill: '#a0522d', stroke: '#6D1F00', font: '#ffffff'}],
 			[{fill: '', stroke: ''}, {fill: mxConstants.NONE, stroke: ''},
@@ -5064,9 +5164,11 @@
 					
 					if (colorset != null)
 					{
+						var b = (urlParams['sketch'] == '1') ? '2px solid' : '1px solid';
+						
 						if (colorset['gradient'] != null)
 						{
-							if (mxClient.IS_IE && (mxClient.IS_QUIRKS || document.documentMode < 10))
+							if (mxClient.IS_IE && (document.documentMode < 10))
 							{
 						    	btn.style.filter = 'progid:DXImageTransform.Microsoft.Gradient('+
 				                	'StartColorStr=\'' + colorset['fill'] +
@@ -5085,27 +5187,27 @@
 						else if (colorset['fill'] == '')
 						{
 							btn.style.backgroundColor = mxUtils.getValue(ui.initialDefaultVertexStyle,
-								mxConstants.STYLE_FILLCOLOR, (uiTheme == 'dark') ?'#2a2a2a' : '#ffffff');
+								mxConstants.STYLE_FILLCOLOR, (Editor.isDarkMode()) ?'#2a2a2a' : '#ffffff');
 						}
 						else
 						{
 							btn.style.backgroundColor = colorset['fill'] || mxUtils.getValue(ui.initialDefaultVertexStyle,
-								mxConstants.STYLE_FILLCOLOR, (uiTheme == 'dark') ?'#2a2a2a' : '#ffffff');
+								mxConstants.STYLE_FILLCOLOR, (Editor.isDarkMode()) ?'#2a2a2a' : '#ffffff');
 						}
 						
 						if (colorset['stroke'] == mxConstants.NONE)
 						{
-							btn.style.border = '1px solid transparent';
+							btn.style.border = b + ' transparent';
 						}
 						else if (colorset['stroke'] == '')
 						{
-							btn.style.border = '1px solid ' + mxUtils.getValue(ui.initialDefaultVertexStyle, 
-								mxConstants.STYLE_STROKECOLOR, (uiTheme != 'dark') ?'#2a2a2a' : '#ffffff');
+							btn.style.border = b + ' ' + mxUtils.getValue(ui.initialDefaultVertexStyle, 
+								mxConstants.STYLE_STROKECOLOR, (!Editor.isDarkMode()) ?'#2a2a2a' : '#ffffff');
 						}
 						else
 						{
-							btn.style.border = '1px solid ' + (colorset['stroke'] || mxUtils.getValue(ui.initialDefaultVertexStyle,
-									mxConstants.STYLE_STROKECOLOR, (uiTheme != 'dark') ?'#2a2a2a' : '#ffffff'));
+							btn.style.border = b + ' ' + (colorset['stroke'] || mxUtils.getValue(ui.initialDefaultVertexStyle,
+									mxConstants.STYLE_STROKECOLOR, (!Editor.isDarkMode()) ?'#2a2a2a' : '#ffffff'));
 						}
 					}
 					else
@@ -5116,6 +5218,8 @@
 						btn.style.backgroundColor = bg;
 						btn.style.border = '1px solid ' + bd;
 					}
+					
+					btn.style.borderRadius = '0';
 					
 					picker.appendChild(btn);
 				});
@@ -5135,7 +5239,7 @@
 
 			if (this.format.currentScheme == null)
 			{
-				setScheme((uiTheme == 'dark') ? 1 : 0);
+				setScheme(Editor.isDarkMode() ? 1 : (urlParams['sketch'] == '1' ? 5 : 0));
 			}
 			else
 			{
@@ -5322,7 +5426,7 @@
 	/**
 	 * Adds a font to the document.
 	 */
-	Graph.addFont = function(name, url)
+	Graph.addFont = function(name, url, callback)
 	{
 		if (name != null && name.length > 0 && url != null && url.length > 0)
 		{
@@ -5355,10 +5459,27 @@
 					Graph.recentCustomFonts[key] = entry;
 					var head = document.getElementsByTagName('head')[0];
 					
+					if (callback != null)
+					{
+						if (entry.elt.nodeName.toLowerCase() == 'link')
+						{
+							entry.elt.onload = callback;
+							entry.elt.onerror = callback;
+						}
+						else
+						{
+							callback();
+						}
+					}
+						
 					if (head != null)
 					{
 						head.appendChild(entry.elt);
 					}
+				}
+				else if (callback != null)
+				{
+					callback();
 				}
 			}
 		}
@@ -5507,34 +5628,6 @@
 		function setMouseEvent(evt)
 		{
 			mouseEvent = evt;
-			
-			// Workaround for member not found in IE8-
-			try
-			{
-				if (mxClient.IS_QUIRKS || document.documentMode == 7 || document.documentMode == 8)
-				{
-					mouseEvent = document.createEventObject(evt);
-					mouseEvent.type = evt.type;
-					mouseEvent.canBubble = evt.canBubble;
-					mouseEvent.cancelable = evt.cancelable;
-					mouseEvent.view = evt.view;
-					mouseEvent.detail = evt.detail;
-					mouseEvent.screenX = evt.screenX;
-					mouseEvent.screenY = evt.screenY;
-					mouseEvent.clientX = evt.clientX;
-					mouseEvent.clientY = evt.clientY;
-					mouseEvent.ctrlKey = evt.ctrlKey;
-					mouseEvent.altKey = evt.altKey;
-					mouseEvent.shiftKey = evt.shiftKey;
-					mouseEvent.metaKey = evt.metaKey;
-					mouseEvent.button = evt.button;
-					mouseEvent.relatedTarget = evt.relatedTarget;
-				}
-			}
-			catch (e)
-			{
-				// ignores possible event cloning errors
-			}
 		};
 		
 		mxEvent.addListener(this.container, 'mouseenter', setMouseEvent);
@@ -5820,13 +5913,16 @@
 	
 	Graph.prototype.getSvg = function(background, scale, border, nocrop, crisp,
 		ignoreSelection, showText, imgExport, linkTarget, hasShadow,
-		incExtFonts, keepTheme, exportType)
+		incExtFonts, keepTheme, exportType, cells)
 	{
 		var temp = null;
+		var tempBg = null;
 		
 		if (!keepTheme && this.themes != null && this.defaultThemeName == 'darkTheme')
 		{
 			temp = this.stylesheet;
+			tempBg = this.defaultPageBackgroundColor;
+			this.defaultPageBackgroundColor = this.defaultThemeName == 'darkTheme' ? '#ffffff' : '#2a2a2a';
 			this.stylesheet = this.getDefaultStylesheet();
 			// LATER: Fix math export in dark mode by fetching text nodes before
 			// calling refresh and changing the font color in-place
@@ -5869,6 +5965,7 @@
 		
 		if (temp != null)
 		{
+			this.defaultPageBackgroundColor = tempBg;
 			this.stylesheet = temp;
 			this.refresh();
 		}
@@ -6598,7 +6695,8 @@
 	
 	mxStencilRegistry.libraries['arrows2'] = [SHAPES_PATH + '/mxArrows.js'];
 	mxStencilRegistry.libraries['atlassian'] = [STENCIL_PATH + '/atlassian.xml', SHAPES_PATH + '/mxAtlassian.js'];
-	mxStencilRegistry.libraries['bpmn'] = [SHAPES_PATH + '/bpmn/mxBpmnShape2.js', STENCIL_PATH + '/bpmn.xml'];
+	mxStencilRegistry.libraries['bpmn'] = [SHAPES_PATH + '/mxBasic.js', STENCIL_PATH + '/bpmn.xml', SHAPES_PATH + '/bpmn/mxBpmnShape.js'];
+	mxStencilRegistry.libraries['bpmn2'] = [SHAPES_PATH + '/mxBasic.js', STENCIL_PATH + '/bpmn.xml', SHAPES_PATH + '/bpmn/mxBpmnShape.js'];
 	mxStencilRegistry.libraries['c4'] = [SHAPES_PATH + '/mxC4.js'];
 	mxStencilRegistry.libraries['cisco19'] = [SHAPES_PATH + '/mxCisco19.js', STENCIL_PATH + '/cisco19.xml'];
 	mxStencilRegistry.libraries['cisco_safe'] = [SHAPES_PATH + '/mxCiscoSafe.js', STENCIL_PATH + '/cisco_safe/architecture.xml', STENCIL_PATH + '/cisco_safe/business_icons.xml', STENCIL_PATH + '/cisco_safe/capability.xml', STENCIL_PATH + '/cisco_safe/design.xml', STENCIL_PATH + '/cisco_safe/iot_things_icons.xml', STENCIL_PATH + '/cisco_safe/people_places_things_icons.xml', STENCIL_PATH + '/cisco_safe/security_icons.xml', STENCIL_PATH + '/cisco_safe/technology_icons.xml', STENCIL_PATH + '/cisco_safe/threat.xml'];
@@ -6614,10 +6712,11 @@
 	mxStencilRegistry.libraries['ios7icons'] = [STENCIL_PATH + '/ios7/icons.xml'];
 	mxStencilRegistry.libraries['ios7ui'] = [SHAPES_PATH + '/ios7/mxIOS7Ui.js', STENCIL_PATH + '/ios7/misc.xml'];
 	mxStencilRegistry.libraries['android'] = [SHAPES_PATH + '/mxAndroid.js', STENCIL_PATH + '/android/android.xml'];
-	mxStencilRegistry.libraries['electrical/miscellaneous'] = [SHAPES_PATH + '/mxElectrical.js', STENCIL_PATH + '/electrical/miscellaneous.xml'];
-	mxStencilRegistry.libraries['electrical/transmission'] = [SHAPES_PATH + '/mxElectrical.js', STENCIL_PATH + '/electrical/transmission.xml'];
-	mxStencilRegistry.libraries['electrical/logic_gates'] = [SHAPES_PATH + '/mxElectrical.js', STENCIL_PATH + '/electrical/logic_gates.xml'];
 	mxStencilRegistry.libraries['electrical/abstract'] = [SHAPES_PATH + '/mxElectrical.js', STENCIL_PATH + '/electrical/abstract.xml'];
+	mxStencilRegistry.libraries['electrical/logic_gates'] = [SHAPES_PATH + '/mxElectrical.js', STENCIL_PATH + '/electrical/logic_gates.xml'];
+	mxStencilRegistry.libraries['electrical/miscellaneous'] = [SHAPES_PATH + '/mxElectrical.js', STENCIL_PATH + '/electrical/miscellaneous.xml'];
+	mxStencilRegistry.libraries['electrical/signal_sources'] = [SHAPES_PATH + '/mxElectrical.js', STENCIL_PATH + '/electrical/signal_sources.xml'];
+	mxStencilRegistry.libraries['electrical/transmission'] = [SHAPES_PATH + '/mxElectrical.js', STENCIL_PATH + '/electrical/transmission.xml'];
 	mxStencilRegistry.libraries['infographic'] = [SHAPES_PATH + '/mxInfographic.js'];
 	mxStencilRegistry.libraries['mockup/buttons'] = [SHAPES_PATH + '/mockup/mxMockupButtons.js'];
 	mxStencilRegistry.libraries['mockup/containers'] = [SHAPES_PATH + '/mockup/mxMockupContainers.js'];
@@ -7130,6 +7229,10 @@
 					// Switches stylesheet for print output in dark mode
 					var temp = null;
 					
+					// Disables dashed printing of flowAnimation
+					var enableFlowAnimation = graph.enableFlowAnimation;
+					graph.enableFlowAnimation = false;
+					
 					if (graph.themes != null && graph.defaultThemeName == 'darkTheme')
 					{
 						temp = graph.stylesheet;
@@ -7139,6 +7242,9 @@
 					
 					// Generates the print output
 					pv.open(null, null, forcePageBreaks, true);
+					
+					// Restores flowAnimation
+					graph.enableFlowAnimation = enableFlowAnimation;
 					
 					// Restores the stylesheet
 					if (temp != null)
@@ -7237,7 +7343,7 @@
 
 					if (tempGraph == null)
 					{
-						tempGraph = editorUi.createTemporaryGraph(graph.stylesheet);//getStylesheet());
+						tempGraph = editorUi.createTemporaryGraph(graph.stylesheet);
 
 						// Restores graph settings that are relevant for printing
 						var pageVisible = true;

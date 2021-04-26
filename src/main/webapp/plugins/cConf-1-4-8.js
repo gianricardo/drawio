@@ -3,6 +3,34 @@
  */
 Draw.loadPlugin(function(ui)
 {
+	// Handle data governess by modifying external services URLs
+	var allowedRegions = {
+		eu: 1,
+		us: 1
+	};
+	
+	if (allowedRegions[urlParams['dataGov']])
+	{
+		var region = urlParams['dataGov'];
+		var urls = {
+			'EXPORT_URL': 'export',
+			'PLANT_URL': 'plant',
+			'VSD_CONVERT_URL': 'vsd',
+			'EMF_CONVERT_URL': 'emf',
+			'OPEN_URL': 'import'
+		};
+		
+		for (var key in urls)
+		{
+			var val = window[key];
+			
+			if (val)
+			{
+				window[key] = '/region-' + urls[key] + '-' + region;
+			}
+		}
+	}
+
 	// Extracts macro data from JSON protocol
 	var macroData = {};
 	
@@ -28,6 +56,9 @@ Draw.loadPlugin(function(ui)
 				
 				ui.initComments(macroData.contentId || macroData.custContentId);
 				macroData.diagramDisplayName = data.title;
+				
+				//Fetch notifications
+				ui.fetchAndShowNotification('conf');	
 			}
 		}
 		catch (e)
@@ -421,7 +452,7 @@ Draw.loadPlugin(function(ui)
 		{
 			var aspectArray = macroData.aspect.split(' ');
 			
-			if (aspectArray.length > 1)
+			if (aspectArray.length > 0)
 			{
 				pageId = aspectArray[0];
 				layerIds = aspectArray.slice(1);
@@ -1218,7 +1249,7 @@ Draw.loadPlugin(function(ui)
 	 * Workaround for changing etag after save is higher autosave delay to allow
 	 * for preflight etag update and decrease possible conflicts on file save.
 	 */
-	EmbedFile.prototype.autosaveDelay = 2500;
+	EmbedFile.prototype.autosaveDelay = 500;
 
 	/**
 	 * Delay for last save in ms.
@@ -1774,6 +1805,7 @@ Draw.loadPlugin(function(ui)
 		}
 	};
 	
+	var p2pCollab = null;
 	//Add file opening here (or it should be for all in EditorUi?)
 	var origInstallMessageHandler =  ui.installMessageHandler;
 	
@@ -1809,6 +1841,13 @@ Draw.loadPlugin(function(ui)
 					{
 						descriptorChangedListener();
 					}
+					
+					//RT Cursors
+					if (urlParams['rtCursors'] == '1' && p2pCollab != null)
+					{
+						p2pCollab.joinFile(file.getChannelId());
+						file.p2pCollab = p2pCollab;
+					}
 				}
 			});
 			
@@ -1820,4 +1859,10 @@ Draw.loadPlugin(function(ui)
 	{
 		//Cancel set modified of the editor and use the file's one
 	};
+	
+	//P2P RT
+	if (urlParams['rtCursors'] == '1')
+	{
+		p2pCollab = new P2PCollab(ui);
+	}
 });
